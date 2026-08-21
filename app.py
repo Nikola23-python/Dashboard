@@ -4,12 +4,14 @@ import plotly.express as px
 import os
 import sys
 
-# --- ФУНКЦИЯ ДЛЯ ПОИСКА ФАЙЛА В .EXE ---
+# --- ФУНКЦИЯ ДЛЯ ПОИСКА ФАЙЛА ---
 def resource_path(relative_path):
-    """Получить путь к файлу, работает и в .exe, и в обычном режиме"""
+    """Возвращает правильный путь к файлу (работает в .exe и в обычном режиме)"""
     try:
+        # Если запущено как .exe
         base_path = sys._MEIPASS
     except Exception:
+        # Если запущено как скрипт
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
@@ -79,7 +81,7 @@ col3.metric("Платно", paid_places)
 
 st.markdown("---")
 
-# --- ПРОХОДНЫЕ БАЛЛЫ ПО НАПРАВЛЕНИЯМ (ТОЛЬКО ОСНОВНЫЕ И ПЛАТНЫЕ) ---
+# --- ПРОХОДНЫЕ БАЛЛЫ ПО НАПРАВЛЕНИЯМ ---
 st.subheader("Проходные баллы по направлениям")
 
 directions_list = sorted(filtered_df["Направление"].unique())
@@ -88,23 +90,19 @@ passing_scores = []
 for direction in directions_list:
     direction_df = filtered_df[filtered_df["Направление"] == direction]
 
-    # ТОЛЬКО ОСНОВНЫЕ МЕСТА (бюджет) с баллами
     main_scores = direction_df[
         (direction_df["Категория места"] == "Основные места") &
         (direction_df["Баллы ЕГЭ"].notna())
     ]
 
-    # ТОЛЬКО ПЛАТНЫЕ МЕСТА с баллами
     paid_scores = direction_df[
         (direction_df["Категория места"] == "Платные места") &
         (direction_df["Баллы ЕГЭ"].notna())
     ]
 
-    # Проходные баллы (минимальный)
     main_pass = int(main_scores["Баллы ЕГЭ"].min()) if len(main_scores) > 0 else "—"
     paid_pass = int(paid_scores["Баллы ЕГЭ"].min()) if len(paid_scores) > 0 else "—"
 
-    # Количество мест
     main_count = len(main_scores)
     paid_count = len(paid_scores)
 
@@ -138,15 +136,11 @@ st.header("Баллы по категориям")
 
 stats_list = []
 
-# Группируем по направлению и категории
 for (direction, category), group in filtered_df.groupby(["Направление", "Категория места"]):
-    # Отделяем тех, у кого есть баллы
     with_scores = group[group["Баллы ЕГЭ"].notna()]
     without_scores = group[group["Баллы ЕГЭ"].isna()]
 
-    # Количество БВИ
     bvi_count = len(without_scores)
-    # Тип оплаты
     typ = group["Тип оплаты"].iloc[0]
 
     if len(with_scores) > 0:
@@ -162,7 +156,6 @@ for (direction, category), group in filtered_df.groupby(["Направление
             "Всего": len(group)
         })
     else:
-        # Если все БВИ (нет баллов)
         stats_list.append({
             "Направление": direction,
             "Категория места": category,
@@ -210,7 +203,6 @@ st.write("")
 # --- БЛОК 3: ПО НАПРАВЛЕНИЯМ ---
 st.header("По направлениям")
 
-# Получаем список направлений
 all_directions = sorted(filtered_df["Направление"].unique())
 
 for direction in all_directions:
@@ -218,7 +210,6 @@ for direction in all_directions:
 
     st.subheader(f"Направление: {direction}")
 
-    # Общая статистика по направлению (все студенты)
     total_students = len(direction_df)
     budget_students = len(direction_df[direction_df["Тип оплаты"] == "Бюджет"])
     paid_students = len(direction_df[direction_df["Тип оплаты"] == "Платно"])
@@ -232,8 +223,11 @@ for direction in all_directions:
     col4.metric("Сдававших ЕГЭ", len(with_scores))
     col5.metric("БВИ", len(bvi_students))
 
+    if len(with_scores) > 0:
+        col6.metric("Средний балл", f"{with_scores['Баллы ЕГЭ'].mean():.1f}")
+    else:
+        col6.metric("Средний балл", "—")
 
-    # Статистика по категориям внутри направления
     dir_stats_list = []
 
     for category in sorted(direction_df["Категория места"].unique()):
@@ -299,7 +293,6 @@ st.write("")
 # --- БЛОК 4: СРАВНЕНИЕ СРЕДНИХ БАЛЛОВ ---
 st.header("Сравнение средних баллов")
 
-# Берём только те категории, где есть баллы
 chart_data = stats_df[stats_df["Средний"] != "—"].copy()
 chart_data["Средний"] = chart_data["Средний"].astype(float)
 
