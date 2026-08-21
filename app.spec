@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import copy_metadata, collect_all
 
-datas = [('Bak.xlsx', '.'), ('app.py', '.')]
+datas = [('Bak.xlsx', '.'), ('Mag_1_.xlsx', '.'), ('app.py', '.')]
 binaries = []
 hiddenimports = []
 
@@ -59,4 +59,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='app.ico',
 )
