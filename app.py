@@ -4,51 +4,69 @@ import plotly.express as px
 import os
 import sys
 
-# --- ФУНКЦИЯ ДЛЯ ПОИСКА ФАЙЛА ---
+
+# --- Путь к ресурсам (работает и в .exe, и в обычном запуске) ---
 def resource_path(relative_path):
-    """Возвращает правильный путь к файлу (работает в .exe и в обычном режиме)"""
     try:
-        # Если запущено как .exe
         base_path = sys._MEIPASS
     except Exception:
-        # Если запущено как скрипт
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-# --- НАСТРОЙКА СТРАНИЦЫ ---
-st.set_page_config(page_title="Статистика бакалавриат", layout="wide")
 
-# --- ЗАГРУЗКА ДАННЫХ ---
+st.set_page_config(page_title="Статистика поступлений", layout="wide")
+
+PAID_LABEL = "Платные места"
+
+
+# --- Загрузка и нормализация данных ---
 @st.cache_data
-def load_data():
-    file_path = resource_path("Bak.xlsx")
-    df = pd.read_excel(file_path, sheet_name="Бакалавриат")
-
-    # Очищаем категории
+def load_bachelor():
+    df = pd.read_excel(resource_path("Bak.xlsx"), sheet_name="Бакалавриат")
+    df["Направление"] = df["Направление"].str.strip()
     df["Категория места"] = df["Категория места"].str.strip()
-
-    # Объединяем "Отдельная квота" и "Отдельная квота, без ВИ"
-    df["Категория места"] = df["Категория места"].replace(
-        "Отдельная квота, без ВИ", "Отдельная квота"
+    df["Балл"] = pd.to_numeric(df["Баллы ЕГЭ"], errors="coerce")
+    df["Тип"] = df["Категория места"].apply(
+        lambda x: "Платно" if x == PAID_LABEL else "Бюджет"
     )
+    return df[["Направление", "Категория места", "Балл", "Тип"]]
 
-    # Преобразуем баллы в числа (прочерки -> NaN)
-    df["Баллы ЕГЭ"] = pd.to_numeric(df["Баллы ЕГЭ"], errors="coerce")
 
-    # Добавляем колонку "Есть баллы"
-    df["Есть баллы"] = df["Баллы ЕГЭ"].notna()
-
-    # --- ДОБАВЛЯЕМ КОЛОНКУ "Тип оплаты" (БЮДЖЕТ / ПЛАТНО) ---
-    budget_categories = ["Основные места", "Особая квота", "Отдельная квота", "Целевая квота"]
-    df["Тип оплаты"] = df["Категория места"].apply(
-        lambda x: "Бюджет" if x in budget_categories else "Платно"
+@st.cache_data
+def load_master():
+    df = pd.read_excel(resource_path("Mag.xlsx"), sheet_name="Лист1")
+    df["Направление"] = df["Направление"].str.strip()
+    df["Категория места"] = df["Категория места"].str.strip()
+    df["Балл"] = pd.to_numeric(df["Балл_ВИ"], errors="coerce")
+    df["Тип"] = df["Категория места"].apply(
+        lambda x: "Платно" if x == PAID_LABEL else "Бюджет"
     )
+    return df[["Направление", "Категория места", "Балл", "Тип"]]
 
-    return df
 
-df = load_data()
+LEVELS = {
+    "Бакалавриат": load_bachelor,
+    "Магистратура": load_master,
+}
 
-# --- БОКОВАЯ ПАНЕЛЬ С ФИЛЬТРАМИ ---
+# --- Выбор уровня образования ---
+st.sidebar.header("Уровень")
+selected_level = st.sidebar.radio("Уровень образования", list(LEVELS.keys()))
+
+try:
+    df = LEVELS[selected_level]()
+except FileNotFoundError as e:
+    st.error(
+        f"Не найден файл с данными для уровня «{selected_level}»: {e}\n\n"
+        "Проверь, что файл лежит рядом со скриптом (или добавлен в датасеты сборки)."
+    )
+    st.stop()
+
+if df.empty:
+    st.info(f"Для уровня «{selected_level}» пока нет данных.")
+    st.stop()
+
+# --- Фильтры ---
 st.sidebar.header("Фильтры")
 
 directions = ["Все"] + sorted(df["Направление"].unique().tolist())
@@ -57,22 +75,20 @@ selected_direction = st.sidebar.selectbox("Направление", directions)
 categories = ["Все"] + sorted(df["Категория места"].unique().tolist())
 selected_category = st.sidebar.selectbox("Категория места", categories)
 
-# --- ПРИМЕНЕНИЕ ФИЛЬТРОВ ---
 filtered_df = df.copy()
-
 if selected_direction != "Все":
     filtered_df = filtered_df[filtered_df["Направление"] == selected_direction]
-
 if selected_category != "Все":
     filtered_df = filtered_df[filtered_df["Категория места"] == selected_category]
 
-# --- БЛОК 1: ОБЩАЯ СВОДКА ---
-st.header("Общая сводка")
+st.title(f"{selected_level}")
 
-# Общее количество мест
+# --- Блок 1: Общая сводка ---
+st.header("Основная информация")
+
 total_places = len(filtered_df)
-budget_places = len(filtered_df[filtered_df["Тип оплаты"] == "Бюджет"])
-paid_places = len(filtered_df[filtered_df["Тип оплаты"] == "Платно"])
+budget_places = len(filtered_df[filtered_df["Тип"] == "Бюджет"])
+paid_places = len(filtered_df[filtered_df["Тип"] == "Платно"])
 
 col1, col2, col3 = st.columns(3)
 col1.metric("Всего мест", total_places)
@@ -81,241 +97,190 @@ col3.metric("Платно", paid_places)
 
 st.markdown("---")
 
-# --- ПРОХОДНЫЕ БАЛЛЫ ПО НАПРАВЛЕНИЯМ ---
+# --- Блок 2: Проходные баллы по направлениям ---
 st.subheader("Проходные баллы по направлениям")
 
-directions_list = sorted(filtered_df["Направление"].unique())
-passing_scores = []
-
-for direction in directions_list:
+passing_rows = []
+for direction in sorted(filtered_df["Направление"].unique()):
     direction_df = filtered_df[filtered_df["Направление"] == direction]
 
-    main_scores = direction_df[
-        (direction_df["Категория места"] == "Основные места") &
-        (direction_df["Баллы ЕГЭ"].notna())
+    budget_scores = direction_df[
+        (direction_df["Тип"] == "Бюджет") & direction_df["Балл"].notna()
     ]
-
     paid_scores = direction_df[
-        (direction_df["Категория места"] == "Платные места") &
-        (direction_df["Баллы ЕГЭ"].notna())
+        (direction_df["Тип"] == "Платно") & direction_df["Балл"].notna()
     ]
 
-    main_pass = int(main_scores["Баллы ЕГЭ"].min()) if len(main_scores) > 0 else "—"
-    paid_pass = int(paid_scores["Баллы ЕГЭ"].min()) if len(paid_scores) > 0 else "—"
-
-    main_count = len(main_scores)
-    paid_count = len(paid_scores)
-
-    passing_scores.append({
+    passing_rows.append({
         "Направление": direction,
-        "Основные места (проходной)": main_pass,
-        "Основные места (кол-во)": main_count,
-        "Платные места (проходной)": paid_pass,
-        "Платные места (кол-во)": paid_count
+        "Бюджет (проходной)": int(budget_scores["Балл"].min()) if len(budget_scores) else None,
+        "Бюджет (кол-во)": len(budget_scores),
+        "Платно (проходной)": int(paid_scores["Балл"].min()) if len(paid_scores) else None,
+        "Платно (кол-во)": len(paid_scores),
     })
 
-passing_df = pd.DataFrame(passing_scores)
+passing_df = pd.DataFrame(passing_rows)
 
 st.dataframe(
     passing_df,
-    use_container_width=True,
+    width="stretch",
     hide_index=True,
     column_config={
-        "Направление": "Направление",
-        "Основные места (проходной)": st.column_config.NumberColumn("Основные (проходной)", format="%d"),
-        "Основные места (кол-во)": st.column_config.NumberColumn("Основные (кол-во)", format="%d"),
-        "Платные места (проходной)": st.column_config.NumberColumn("Платные (проходной)", format="%d"),
-        "Платные места (кол-во)": st.column_config.NumberColumn("Платные (кол-во)", format="%d")
-    }
+        "Бюджет (проходной)": st.column_config.NumberColumn(format="%.0f"),
+        "Бюджет (кол-во)": st.column_config.NumberColumn(format="%d"),
+        "Платно (проходной)": st.column_config.NumberColumn(format="%.0f"),
+        "Платно (кол-во)": st.column_config.NumberColumn(format="%d"),
+    },
 )
 
 st.markdown("---")
 
-# --- БЛОК 2: БАЛЛЫ ПО КАТЕГОРИЯМ ---
+# --- Блок 3: Баллы по категориям ---
 st.header("Баллы по категориям")
 
-stats_list = []
-
+stats_rows = []
 for (direction, category), group in filtered_df.groupby(["Направление", "Категория места"]):
-    with_scores = group[group["Баллы ЕГЭ"].notna()]
-    without_scores = group[group["Баллы ЕГЭ"].isna()]
+    with_scores = group[group["Балл"].notna()]
+    without_scores = group[group["Балл"].isna()]
+    typ = group["Тип"].iloc[0]
 
-    bvi_count = len(without_scores)
-    typ = group["Тип оплаты"].iloc[0]
-
-    if len(with_scores) > 0:
-        stats_list.append({
+    if len(with_scores):
+        stats_rows.append({
             "Направление": direction,
             "Категория места": category,
-            "Тип оплаты": typ,
-            "Минимальный": int(with_scores["Баллы ЕГЭ"].min()),
-            "Средний": round(with_scores["Баллы ЕГЭ"].mean(), 1),
-            "Максимальный": int(with_scores["Баллы ЕГЭ"].max()),
-            "Сдававших": len(with_scores),
-            "БВИ": bvi_count,
-            "Всего": len(group)
+            "Тип": typ,
+            "Минимальный": int(with_scores["Балл"].min()),
+            "Средний": round(with_scores["Балл"].mean(), 1),
+            "Максимальный": int(with_scores["Балл"].max()),
+            "С баллом": len(with_scores),
+            "Без ВИ": len(without_scores),
+            "Всего": len(group),
         })
     else:
-        stats_list.append({
+        stats_rows.append({
             "Направление": direction,
             "Категория места": category,
-            "Тип оплаты": typ,
-            "Минимальный": "—",
-            "Средний": "—",
-            "Максимальный": "—",
-            "Сдававших": 0,
-            "БВИ": bvi_count,
-            "Всего": len(group)
+            "Тип": typ,
+            "Минимальный": None,
+            "Средний": None,
+            "Максимальный": None,
+            "С баллом": 0,
+            "Без ВИ": len(without_scores),
+            "Всего": len(group),
         })
 
-stats_df = pd.DataFrame(stats_list)
+stats_df = pd.DataFrame(stats_rows)
 
 st.dataframe(
     stats_df,
-    use_container_width=True,
+    width="stretch",
     hide_index=True,
     column_config={
-        "Направление": "Направление",
-        "Категория места": "Категория",
-        "Тип оплаты": "Тип оплаты",
-        "Минимальный": "Минимальный",
-        "Средний": "Средний",
-        "Максимальный": "Максимальный",
-        "Сдававших": st.column_config.NumberColumn("Сдававших", format="%d"),
-        "БВИ": st.column_config.NumberColumn("БВИ", format="%d"),
-        "Всего": st.column_config.NumberColumn("Всего", format="%d")
-    }
+        "Минимальный": st.column_config.NumberColumn(format="%.0f"),
+        "Средний": st.column_config.NumberColumn(format="%.1f"),
+        "Максимальный": st.column_config.NumberColumn(format="%.0f"),
+        "С баллом": st.column_config.NumberColumn(format="%d"),
+        "Без ВИ": st.column_config.NumberColumn(format="%d"),
+        "Всего": st.column_config.NumberColumn(format="%d"),
+    },
 )
 
 st.write("")
 st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
 
-# --- БЛОК 3: ПО НАПРАВЛЕНИЯМ ---
+# --- Блок 4: По направлениям (детально) ---
 st.header("По направлениям")
 
-all_directions = sorted(filtered_df["Направление"].unique())
-
-for direction in all_directions:
+for direction in sorted(filtered_df["Направление"].unique()):
     direction_df = filtered_df[filtered_df["Направление"] == direction]
 
     st.subheader(f"Направление: {direction}")
 
     total_students = len(direction_df)
-    budget_students = len(direction_df[direction_df["Тип оплаты"] == "Бюджет"])
-    paid_students = len(direction_df[direction_df["Тип оплаты"] == "Платно"])
-    with_scores = direction_df[direction_df["Баллы ЕГЭ"].notna()]
-    bvi_students = direction_df[direction_df["Баллы ЕГЭ"].isna()]
+    budget_students = len(direction_df[direction_df["Тип"] == "Бюджет"])
+    paid_students = len(direction_df[direction_df["Тип"] == "Платно"])
+    with_scores = direction_df[direction_df["Балл"].notna()]
+    without_scores = direction_df[direction_df["Балл"].isna()]
 
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Всего мест", total_students)
     col2.metric("Бюджет", budget_students)
     col3.metric("Платно", paid_students)
-    col4.metric("Сдававших ЕГЭ", len(with_scores))
-    col5.metric("БВИ", len(bvi_students))
+    col4.metric("С баллом", len(with_scores))
+    col5.metric("Без ВИ", len(without_scores))
 
-    if len(with_scores) > 0:
-        col6.metric("Средний балл", f"{with_scores['Баллы ЕГЭ'].mean():.1f}")
-    else:
-        col6.metric("Средний балл", "—")
-
-    dir_stats_list = []
-
+    dir_rows = []
     for category in sorted(direction_df["Категория места"].unique()):
         cat_df = direction_df[direction_df["Категория места"] == category]
-        cat_with_scores = cat_df[cat_df["Баллы ЕГЭ"].notna()]
-        cat_bvi = cat_df[cat_df["Баллы ЕГЭ"].isna()]
-        typ = cat_df["Тип оплаты"].iloc[0]
+        cat_with_scores = cat_df[cat_df["Балл"].notna()]
+        cat_without = cat_df[cat_df["Балл"].isna()]
+        typ = cat_df["Тип"].iloc[0]
 
-        if len(cat_with_scores) > 0:
-            dir_stats_list.append({
-                "Категория": category,
-                "Тип оплаты": typ,
+        if len(cat_with_scores):
+            dir_rows.append({
+                "Категория места": category,
+                "Тип": typ,
                 "Всего": len(cat_df),
-                "Сдававших": len(cat_with_scores),
-                "БВИ": len(cat_bvi),
-                "Минимальный": int(cat_with_scores["Баллы ЕГЭ"].min()),
-                "Средний": round(cat_with_scores["Баллы ЕГЭ"].mean(), 1),
-                "Максимальный": int(cat_with_scores["Баллы ЕГЭ"].max())
+                "С баллом": len(cat_with_scores),
+                "Без ВИ": len(cat_without),
+                "Минимальный": int(cat_with_scores["Балл"].min()),
+                "Средний": round(cat_with_scores["Балл"].mean(), 1),
+                "Максимальный": int(cat_with_scores["Балл"].max()),
             })
         else:
-            dir_stats_list.append({
-                "Категория": category,
-                "Тип оплаты": typ,
+            dir_rows.append({
+                "Категория места": category,
+                "Тип": typ,
                 "Всего": len(cat_df),
-                "Сдававших": 0,
-                "БВИ": len(cat_bvi),
-                "Минимальный": "—",
-                "Средний": "—",
-                "Максимальный": "—"
+                "С баллом": 0,
+                "Без ВИ": len(cat_without),
+                "Минимальный": None,
+                "Средний": None,
+                "Максимальный": None,
             })
 
-    dir_stats_df = pd.DataFrame(dir_stats_list)
+    dir_stats_df = pd.DataFrame(dir_rows)
 
     st.dataframe(
         dir_stats_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config={
-            "Категория": "Категория",
-            "Тип оплаты": "Тип оплаты",
-            "Всего": st.column_config.NumberColumn("Всего", format="%d"),
-            "Сдававших": st.column_config.NumberColumn("Сдававших", format="%d"),
-            "БВИ": st.column_config.NumberColumn("БВИ", format="%d"),
-            "Минимальный": "Минимальный",
-            "Средний": "Средний",
-            "Максимальный": "Максимальный"
-        }
+            "Всего": st.column_config.NumberColumn(format="%d"),
+            "С баллом": st.column_config.NumberColumn(format="%d"),
+            "Без ВИ": st.column_config.NumberColumn(format="%d"),
+            "Минимальный": st.column_config.NumberColumn(format="%.0f"),
+            "Средний": st.column_config.NumberColumn(format="%.1f"),
+            "Максимальный": st.column_config.NumberColumn(format="%.0f"),
+        },
     )
 
 st.write("")
 st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
-st.write("")
 
-# --- БЛОК 4: СРАВНЕНИЕ СРЕДНИХ БАЛЛОВ ---
-st.header("Сравнение средних баллов")
+# --- Блок 5: Сравнение среднего балла ---
+st.header("Сравнение среднего балла")
 
-chart_data = stats_df[stats_df["Средний"] != "—"].copy()
+chart_data = stats_df[stats_df["Средний"].notna()].copy()
 chart_data["Средний"] = chart_data["Средний"].astype(float)
 
-if len(chart_data) > 0:
-    chart_data["Направление и категория"] = chart_data["Направление"] + " - " + chart_data["Категория места"]
+if len(chart_data):
+    chart_data["Направление + категория"] = (
+        chart_data["Направление"] + " — " + chart_data["Категория места"]
+    )
 
     fig = px.bar(
         chart_data,
-        x="Направление и категория",
+        x="Направление + категория",
         y="Средний",
-        color="Тип оплаты",
+        color="Тип",
         text="Средний",
-        color_discrete_sequence=["#1a237e", "#e65100"]
+        color_discrete_sequence=["#1a237e", "#e65100"],
     )
-    fig.update_traces(texttemplate='%{text:.1f}', textposition='outside')
-    fig.update_layout(
-        xaxis_title="",
-        yaxis_title="Средний балл",
-        showlegend=True,
-        height=500
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_traces(texttemplate="%{text:.1f}", textposition="outside")
+    fig.update_layout(xaxis_title="", yaxis_title="Средний балл", showlegend=True, height=500)
+    st.plotly_chart(fig, width="stretch")
 else:
-    st.info("Нет данных для построения графика")
+    st.info("Нет данных для построения графика.")
 
 st.caption(f"Данные обновлены: {pd.Timestamp.now().strftime('%d.%m.%Y %H:%M')}")
