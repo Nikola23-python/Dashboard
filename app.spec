@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import copy_metadata, collect_all
 
-datas = [('Bak.xlsx', '.'), ('Mag_1_.xlsx', '.'), ('app.py', '.')]
+datas = [('Bak.xlsx', '.'), ('Mag.xlsx', '.'), ('app.py', '.')]
 binaries = []
 hiddenimports = []
 
