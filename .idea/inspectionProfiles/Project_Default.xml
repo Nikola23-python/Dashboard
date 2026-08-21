@@ -1,0 +1,19 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="python-telegram-bot" />
+          <option value="requests" />
+          <option value="beautifulsoup4" />
+          <option value="lxml" />
+          <option value="python-dotenv" />
+          <option value="numpy" />
+          <option value="bs4" />
+          <option value="httpx" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
