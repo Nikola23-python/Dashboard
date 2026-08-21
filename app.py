@@ -82,10 +82,10 @@ if selected_direction != "Все":
 if selected_category != "Все":
     filtered_df = filtered_df[filtered_df["Категория места"] == selected_category]
 
-st.title(f"Статистика поступлений — {selected_level}")
+st.title(f"{selected_level}")
 
 # --- Блок 1: Общая сводка ---
-st.header("Общая сводка")
+st.header("Основная информация")
 
 total_places = len(filtered_df)
 budget_places = len(filtered_df[filtered_df["Тип"] == "Бюджет"])
