@@ -17,6 +17,7 @@ def resource_path(relative_path):
 st.set_page_config(page_title="Статистика поступлений", layout="wide")
 
 PAID_LABEL = "Платные места"
+MAIN_BUDGET_LABEL = "Основные места"
 
 
 # --- Загрузка и нормализация данных ---
@@ -81,10 +82,10 @@ if selected_direction != "Все":
 if selected_category != "Все":
     filtered_df = filtered_df[filtered_df["Категория места"] == selected_category]
 
-st.title(f"{selected_level}")
+st.title(f"Статистика поступлений — {selected_level}")
 
 # --- Блок 1: Общая сводка ---
-st.header("Основная информация")
+st.header("Общая сводка")
 
 total_places = len(filtered_df)
 budget_places = len(filtered_df[filtered_df["Тип"] == "Бюджет"])
@@ -105,10 +106,10 @@ for direction in sorted(filtered_df["Направление"].unique()):
     direction_df = filtered_df[filtered_df["Направление"] == direction]
 
     budget_scores = direction_df[
-        (direction_df["Тип"] == "Бюджет") & direction_df["Балл"].notna()
+        (direction_df["Категория места"] == MAIN_BUDGET_LABEL) & direction_df["Балл"].notna()
     ]
     paid_scores = direction_df[
-        (direction_df["Тип"] == "Платно") & direction_df["Балл"].notna()
+        (direction_df["Категория места"] == PAID_LABEL) & direction_df["Балл"].notna()
     ]
 
     passing_rows.append({
@@ -208,6 +209,7 @@ for direction in sorted(filtered_df["Направление"].unique()):
     col3.metric("Платно", paid_students)
     col4.metric("С баллом", len(with_scores))
     col5.metric("Без ВИ", len(without_scores))
+    col6.metric("Средний балл", f"{with_scores['Балл'].mean():.1f}" if len(with_scores) else "—")
 
     dir_rows = []
     for category in sorted(direction_df["Категория места"].unique()):
